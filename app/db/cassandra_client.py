@@ -11,9 +11,10 @@ import logging
 from cassandra.cluster import Cluster, Session
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.query import SimpleStatement, dict_factory
+from cassandra.cluster import Cluster
+from cassandra.connection import Connection
 
 logger = logging.getLogger(__name__)
-
 class CassandraClient:
     """Singleton Cassandra client for the application."""
     
@@ -43,7 +44,7 @@ class CassandraClient:
     def connect(self) -> None:
         """Connect to the Cassandra cluster."""
         try:
-            self.cluster = Cluster([self.host])
+            self.cluster = Cluster([self.host], port=self.port)
             self.session = self.cluster.connect(self.keyspace)
             self.session.row_factory = dict_factory
             logger.info(f"Connected to Cassandra at {self.host}:{self.port}, keyspace: {self.keyspace}")
