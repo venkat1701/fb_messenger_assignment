@@ -12,18 +12,18 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-if ! command -v docker compose &> /dev/null; then
+if ! command -v docker-compose &> /dev/null; then
     echo "Docker Compose not found. Please install Docker Compose before proceeding."
     exit 1
 fi
 
 # Start the containers in detached mode
 echo "Starting Docker containers..."
-docker compose up -d
+docker-compose up -d
 
 # Wait for Cassandra to be ready (this may take a while on first run)
 echo "Waiting for Cassandra to initialize (this may take a minute or two)..."
-docker compose exec -T cassandra bash -c "for i in {1..30}; do if cqlsh -e 'describe cluster' &>/dev/null; then echo 'Cassandra ready!'; exit 0; fi; echo 'Waiting for Cassandra...'; sleep 5; done; echo 'Cassandra did not start in time'; exit 1"
+docker-compose exec -T cassandra bash -c "for i in {1..30}; do if cqlsh -e 'describe cluster' &>/dev/null; then echo 'Cassandra ready!'; exit 0; fi; echo 'Waiting for Cassandra...'; sleep 5; done; echo 'Cassandra did not start in time'; exit 1"
 
 # Inform about setup needed
 echo "====================================================================="
