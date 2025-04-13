@@ -75,7 +75,7 @@ def create_tables(session):
         ) WITH CLUSTERING ORDER BY (last_message_at DESC, conversation_id ASC)
     """)
 
-    # Table for storing user data
+    # Table for storing user data - Changed user_id to int type to match test data
     session.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id int PRIMARY KEY,
