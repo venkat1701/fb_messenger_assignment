@@ -1,147 +1,96 @@
 from fastapi import HTTPException, status
 
-from app.models.cassandra_models import MessageModel
-from app.schemas.message import (
-    MessageCreate,
-    MessageResponse,
-    PaginatedMessageResponse,
-)
+from app.models.cassandra_models import ConversationModel
+from app.schemas.conversation import ConversationResponse, PaginatedConversationResponse
 
 
-class MessageController:
+class ConversationController:
     """
-    Controller for handling message-related operations
+    Controller for handling conversation operations
     """
 
-    async def create_message(self, message: MessageCreate) -> MessageResponse:
+    async def get_user_conversations(
+            self,
+            user_id: int,
+            page: int = 1,
+            limit: int = 20
+    ) -> PaginatedConversationResponse:
         """
-        Create a new message in a conversation.
+        Get all conversations for a user with pagination
 
         Args:
-            message: MessageCreate object
-
-        Returns:
-            MessageResponse
-        """
-        try:
-            created = await MessageModel.create_message(
-                sender_id=message.sender_id,
-                receiver_id=message.receiver_id,
-                content=message.content,
-            )
-
-            return MessageResponse(
-                id=created["message_id"],
-                sender_id=created["sender_id"],
-                receiver_id=created["receiver_id"],
-                content=created["content"],
-                created_at=created["created_at"],
-                conversation_id=created["conversation_id"],
-            )
-
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to create message: {str(e)}"
-            )
-
-    async def get_conversation_messages(
-        self,
-        conversation_id: int,
-        page: int = 1,
-        limit: int = 20
-    ) -> PaginatedMessageResponse:
-        """
-        Get paginated messages from a conversation.
-
-        Args:
-            conversation_id: ID of the conversation
+            user_id: ID of the user
             page: Page number
-            limit: Page size
+            limit: Number of conversations per page
 
         Returns:
-            PaginatedMessageResponse
+            Paginated list of conversations
         """
         try:
-            messages = await MessageModel.get_conversation_messages(
-                conversation_id=conversation_id,
+            conversations = await ConversationModel.get_user_conversations(
+                user_id=user_id,
                 page=page,
                 limit=limit
             )
 
-            response_data = [
-                MessageResponse(
-                    id=msg["message_id"],
-                    sender_id=msg["sender_id"],
-                    receiver_id=msg["receiver_id"],
-                    content=msg["content"],
-                    created_at=msg["created_at"],
-                    conversation_id=msg["conversation_id"],
+            data = [
+                ConversationResponse(
+                    id=conv["conversation_id"],
+                    user1_id=conv["user_id"],
+                    user2_id=conv["other_user_id"],
+                    last_message_at=conv["last_message_at"],
+                    last_message_content=conv["last_message_preview"]
                 )
-                for msg in messages
+                for conv in conversations
             ]
 
-            return PaginatedMessageResponse(
-                total=len(response_data),
+            return PaginatedConversationResponse(
+                total=len(data),
                 page=page,
                 limit=limit,
-                data=response_data
+                data=data
             )
 
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to fetch messages: {str(e)}"
+                detail=f"Failed to retrieve user conversations: {str(e)}"
             )
 
-    async def get_messages_before_timestamp(
-        self,
-        conversation_id: int,
-        before_timestamp: datetime,
-        page: int = 1,
-        limit: int = 20
-    ) -> PaginatedMessageResponse:
+    async def get_conversation(self, conversation_id: int) -> ConversationResponse:
         """
-        Get messages from a conversation before a timestamp (for infinite scroll).
+        Get a specific conversation by ID
 
         Args:
             conversation_id: ID of the conversation
-            before_timestamp: Upper bound for message timestamps
-            page: Page number
-            limit: Page size
 
         Returns:
-            PaginatedMessageResponse
+            Conversation details
+
+        Raises:
+            HTTPException: If conversation not found
         """
         try:
-            messages = await MessageModel.get_messages_before_timestamp(
-                conversation_id=conversation_id,
-                before_timestamp=before_timestamp,
-                page=page,
-                limit=limit
-            )
+            conversation = await ConversationModel.get_conversation(conversation_id=conversation_id)
 
-            response_data = [
-                MessageResponse(
-                    id=msg["message_id"],
-                    sender_id=msg["sender_id"],
-                    receiver_id=msg["receiver_id"],
-                    content=msg["content"],
-                    created_at=msg["created_at"],
-                    conversation_id=msg["conversation_id"],
+            if not conversation:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Conversation with ID {conversation_id} not found"
                 )
-                for msg in messages
-            ]
 
-            return PaginatedMessageResponse(
-                total=len(response_data),
-                page=page,
-                limit=limit,
-                data=response_data
+            return ConversationResponse(
+                id=conversation["id"],
+                user1_id=conversation["user1_id"],
+                user2_id=conversation["user2_id"],
+                last_message_at=conversation["last_message_at"],
+                last_message_content=conversation["last_message_content"]
             )
 
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to fetch messages: {str(e)}"
+                detail=f"Failed to retrieve conversation: {str(e)}"
             )

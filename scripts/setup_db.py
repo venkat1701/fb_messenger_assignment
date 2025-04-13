@@ -34,15 +34,9 @@ def wait_for_cassandra():
     raise Exception("Could not connect to Cassandra")
 
 def create_keyspace(session):
-    """
-    Create the keyspace if it doesn't exist.
-    
-    This is where students will define the keyspace configuration.
-    """
+    """Create the keyspace if it doesn't exist."""
     logger.info(f"Creating keyspace {CASSANDRA_KEYSPACE} if it doesn't exist...")
-    
-    # TODO: Students should implement keyspace creation
-    # Hint: Consider replication strategy and factor for a distributed database
+
     session.execute(f"""
         CREATE KEYSPACE IF NOT EXISTS {CASSANDRA_KEYSPACE}
         WITH replication = {{
@@ -53,68 +47,62 @@ def create_keyspace(session):
     logger.info(f"Keyspace {CASSANDRA_KEYSPACE} is ready.")
 
 def create_tables(session):
-    """
-    Create the tables for the application.
-    
-    This is where students will define the table schemas based on the requirements.
-    """
+    """Create the tables for the application."""
     logger.info("Creating tables...")
-    
-    # TODO: Students should implement table creation
-    # Hint: Consider:
-    # - What tables are needed to implement the required APIs?
-    # - What should be the primary keys and clustering columns?
-    # - How will you handle pagination and time-based queries?
+
+    # Table for storing messages by conversation (for fetching message history)
     session.execute("""
         CREATE TABLE IF NOT EXISTS messages_by_conversation (
-            conversation_id UUID,
-            message_timestamp TIMESTAMP,
-            message_id UUID,
-            sender_id UUID,
-            recipient_id UUID,
-            context TEXT,
-            PRIMARY KEY ((conversation_id), message_timestamp)
-        )   WITH CLUSTERING ORDER BY (message_timestamp DESC)
+            conversation_id uuid,
+            created_at timestamp,
+            message_id uuid,
+            sender_id int,
+            receiver_id int,
+            content text,
+            PRIMARY KEY ((conversation_id), created_at, message_id)
+        ) WITH CLUSTERING ORDER BY (created_at DESC, message_id ASC)
     """)
 
+    # Table for storing user's conversations (for fetching conversation list)
     session.execute("""
         CREATE TABLE IF NOT EXISTS conversations_by_user (
-            user_id UUID,
-            conversation_id UUID,
-            last_message_timestamp TIMESTAMP,
-            participant_id UUID,
-            last_message_preview TEXT,
-            PRIMARY KEY ((user_id), last_message_timestamp)
-        ) WITH CLUSTERING ORDER BY (last_message_timestamp DESC)
+            user_id int,
+            conversation_id uuid,
+            last_message_at timestamp,
+            other_user_id int,
+            last_message_preview text,
+            PRIMARY KEY ((user_id), last_message_at, conversation_id)
+        ) WITH CLUSTERING ORDER BY (last_message_at DESC, conversation_id ASC)
     """)
 
+    # Table for storing user data
     session.execute("""
-        CREATE TABLE IF NOT EXISTS users(
-            user_id UUID PRIMARY KEY,
-            username TEXT,
-            full_name TEXT,
-            profile_pic_url TEXT
-        );
+        CREATE TABLE IF NOT EXISTS users (
+            user_id int PRIMARY KEY,
+            username text,
+            full_name text,
+            profile_pic_url text
+        )
     """)
-    
+
     logger.info("Tables created successfully.")
 
 def main():
     """Initialize the database."""
     logger.info("Starting Cassandra initialization...")
-    
+
     # Wait for Cassandra to be ready
     cluster = wait_for_cassandra()
-    
+
     try:
         # Connect to the server
         session = cluster.connect()
-        
+
         # Create keyspace and tables
         create_keyspace(session)
         session.set_keyspace(CASSANDRA_KEYSPACE)
         create_tables(session)
-        
+
         logger.info("Cassandra initialization completed successfully.")
     except Exception as e:
         logger.error(f"Error during initialization: {str(e)}")
@@ -124,4 +112,4 @@ def main():
             cluster.shutdown()
 
 if __name__ == "__main__":
-    main() 
+    main()

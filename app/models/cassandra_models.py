@@ -1,6 +1,5 @@
 """
-Sample models for interacting with Cassandra tables.
-Students should implement these models based on their database schema design.
+Models for interacting with Cassandra tables.
 """
 import uuid
 from datetime import datetime
@@ -11,189 +10,223 @@ from app.db.cassandra_client import cassandra_client
 class MessageModel:
     """
     Message model for interacting with the messages table.
-    Students will implement this as part of the assignment.
-    
-    They should consider:
-    - How to efficiently store and retrieve messages
-    - How to handle pagination of results
-    - How to filter messages by timestamp
     """
-    
-    # TODO: Implement the following methods
-    
+
     @staticmethod
-    async def create_message(*args, **kwargs):
+    async def create_message(sender_id: int, receiver_id: int, content: str) -> Dict[str, Any]:
         """
-        Create a new message.
-        
-        Students should decide what parameters are needed based on their schema design.
-        """
-        # This is a stub - students will implement the actual logic
-        conversation_id = kwargs.get("conversation_id")
-        sender_id = kwargs.get("sender_id")
-        recipient_id = kwargs.get("recipient_id")
-        context = kwargs.get("context")
+        Create a new message between users.
 
+        Args:
+            sender_id: ID of the sending user
+            receiver_id: ID of the receiving user
+            content: Message content
+
+        Returns:
+            Dictionary with message data
+        """
+        # Generate IDs and timestamps
         message_id = uuid.uuid4()
-        timestamp = datetime.utcnow()
+        created_at = datetime.utcnow()
 
-        message_in_conversation_query = """
-            INSERT INTO messages_by_conversation (conversation_id, message_timestamp, message_id, sender_id, recipient_id, context)
-            VALUES (%s, %s, %s, %s, %s, %s)
+        # Sort user IDs to create a consistent conversation ID
+        user_ids = sorted([sender_id, receiver_id])
+        conversation_id = uuid.uuid5(
+            uuid.NAMESPACE_DNS,
+            f"{user_ids[0]}-{user_ids[1]}"
+        )
+
+        # Insert message into messages_by_conversation
+        query = """
+            INSERT INTO messages_by_conversation (
+                conversation_id, 
+                created_at, 
+                message_id, 
+                sender_id, 
+                receiver_id, 
+                content
+            ) VALUES (%s, %s, %s, %s, %s, %s)
         """
+        params = (conversation_id, created_at, message_id, sender_id, receiver_id, content)
+        await cassandra_client.execute(query, params)
 
-        conversation_in_user_query = """
-            INSERT INTO conversations_by_user(user_id, conversation_id, last_message_timestamp, participant_id, last_message_preview)
-            VALUES (%s, %s, %s, %s, %s)
+        # Update conversation for sender
+        update_conversation_query = """
+            INSERT INTO conversations_by_user (
+                user_id, 
+                conversation_id, 
+                last_message_at, 
+                other_user_id, 
+                last_message_preview
+            ) VALUES (%s, %s, %s, %s, %s)
         """
+        # For sender
+        sender_params = (sender_id, conversation_id, created_at, receiver_id, content[:50])
+        await cassandra_client.execute(update_conversation_query, sender_params)
 
-        async with cassandra_client() as session:
-            await session.execute(message_in_conversation_query, (conversation_id, timestamp, message_id, sender_id, recipient_id, context))
-            await session.execute(conversation_in_user_query, (sender_id, conversation_id, timestamp, recipient_id, context))
-            await session.execute(conversation_in_user_query, (recipient_id, conversation_id, timestamp, sender_id, context))
+        # For receiver
+        receiver_params = (receiver_id, conversation_id, created_at, sender_id, content[:50])
+        await cassandra_client.execute(update_conversation_query, receiver_params)
 
         return {
-            "id": str(message_id),
-            "sender_id": str(sender_id),
-            "recipient_id": str(recipient_id),
-            "conversation_id": str(conversation_id),
-            "timestamp": timestamp,
-            "context": context,
             "message_id": message_id,
+            "conversation_id": conversation_id,
+            "sender_id": sender_id,
+            "receiver_id": receiver_id,
+            "content": content,
+            "created_at": created_at
         }
 
     @staticmethod
-    async def get_conversation_messages(*args, **kwargs):
+    async def get_conversation_messages(
+        conversation_id: int,
+        page: int = 1,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
         """
         Get messages for a conversation with pagination.
-        
-        Students should decide what parameters are needed and how to implement pagination.
-        """
-        # This is a stub - students will implement the actual logic
 
-        conversation_id = kwargs.get("conversation_id")
-        limit = kwargs.get("limit", 20)
+        Args:
+            conversation_id: ID of the conversation
+            page: Page number, starting from 1
+            limit: Number of messages per page
 
-        async with cassandra_client() as session:
-            result = await session.execute("""
-                SELECT * FROM messages_by_conversation
-                WHERE conversation_id = %s
-                LIMIT %s
-            """, (conversation_id, limit))
-            return result.current_rows
-
-    @staticmethod
-    async def get_messages_before_timestamp(*args, **kwargs):
+        Returns:
+            List of message dictionaries
         """
-        Get messages before a timestamp with pagination.
-        
-        Students should decide how to implement filtering by timestamp with pagination.
-        """
-        # This is a stub - students will implement the actual logic
-        conversation_id = kwargs.get("conversation_id")
-        before_timestamp = kwargs.get("before_timestamp")
-        limit = kwargs.get("limit", 20)
+        # Calculate offset
+        offset = (page - 1) * limit
 
         query = """
-                   SELECT * FROM messages_by_conversation 
-                   WHERE conversation_id = %s AND message_timestamp < %s 
-                   LIMIT %s
-               """
+            SELECT 
+                message_id, 
+                conversation_id, 
+                sender_id, 
+                receiver_id, 
+                content, 
+                created_at 
+            FROM messages_by_conversation 
+            WHERE conversation_id = %s 
+            ORDER BY created_at DESC 
+            LIMIT %s
+        """
+        params = (conversation_id, limit)
 
-        async with cassandra_client() as session:
-            result = await session.execute(query, (conversation_id, before_timestamp, limit))
-            return result.current_rows
+        result = await cassandra_client.execute(query, params)
+        return result
+
+    @staticmethod
+    async def get_messages_before_timestamp(
+        conversation_id: int,
+        before_timestamp: datetime,
+        page: int = 1,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Get messages before a timestamp with pagination.
+
+        Args:
+            conversation_id: ID of the conversation
+            before_timestamp: Get messages before this timestamp
+            page: Page number, starting from 1
+            limit: Number of messages per page
+
+        Returns:
+            List of message dictionaries
+        """
+        query = """
+            SELECT 
+                message_id, 
+                conversation_id, 
+                sender_id, 
+                receiver_id, 
+                content, 
+                created_at 
+            FROM messages_by_conversation 
+            WHERE conversation_id = %s 
+            AND created_at < %s 
+            ORDER BY created_at DESC 
+            LIMIT %s
+        """
+        params = (conversation_id, before_timestamp, limit)
+
+        result = await cassandra_client.execute(query, params)
+        return result
 
 
 class ConversationModel:
     """
-    Conversation model for interacting with the conversations-related tables.
-    Students will implement this as part of the assignment.
-    
-    They should consider:
-    - How to efficiently store and retrieve conversations for a user
-    - How to handle pagination of results
-    - How to optimize for the most recent conversations
+    Conversation model for interacting with conversations-related tables.
     """
-    
-    # TODO: Implement the following methods
-    
+
     @staticmethod
-    async def get_user_conversations(*args, **kwargs):
+    async def get_user_conversations(
+        user_id: int,
+        page: int = 1,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
         """
         Get conversations for a user with pagination.
-        
-        Students should decide what parameters are needed and how to implement pagination.
+
+        Args:
+            user_id: ID of the user
+            page: Page number, starting from 1
+            limit: Number of conversations per page
+
+        Returns:
+            List of conversation dictionaries
         """
-        # This is a stub - students will implement the actual logic
-        user_id = kwargs.get("user_id")
-        limit = kwargs.get("limit", 20)
-        before_timestamp = kwargs.get("before_timestamp")
+        query = """
+            SELECT 
+                conversation_id, 
+                user_id,
+                other_user_id,
+                last_message_at, 
+                last_message_preview 
+            FROM conversations_by_user 
+            WHERE user_id = %s 
+            ORDER BY last_message_at DESC 
+            LIMIT %s
+        """
+        params = (user_id, limit)
 
-        if before_timestamp:
-            query = """
-                SELECT * FROM conversations_by_user 
-                WHERE user_id = %s AND last_message_timestamp < %s 
-                LIMIT %s
-            """
-            params = (user_id, before_timestamp, limit)
-        else:
-            query = """
-                SELECT * FROM conversations_by_user 
-                WHERE user_id = %s 
-                LIMIT %s
-            """
-            params = (user_id, limit)
-
-        async with cassandra_client() as session:
-            result = await session.execute(query, params)
-            return result.current_rows
+        result = await cassandra_client.execute(query, params)
+        return result
 
     @staticmethod
-    async def get_conversation(*args, **kwargs):
+    async def get_conversation(conversation_id: int) -> Dict[str, Any]:
         """
         Get a conversation by ID.
-        
-        Students should decide what parameters are needed and what data to return.
-        """
-        # This is a stub - students will implement the actual logic
-        conversation_id = kwargs.get("conversation_id")
-        limit = kwargs.get("limit", 20)
 
+        Args:
+            conversation_id: ID of the conversation
+
+        Returns:
+            Conversation data dictionary
+        """
+        # Get most recent message to extract user IDs
         query = """
-           SELECT * FROM messages_by_conversation 
-           WHERE conversation_id = %s 
-           LIMIT %s
+            SELECT 
+                conversation_id, 
+                sender_id, 
+                receiver_id, 
+                content, 
+                created_at 
+            FROM messages_by_conversation 
+            WHERE conversation_id = %s 
+            LIMIT 1
         """
+        params = (conversation_id,)
 
-        async with cassandra_client() as session:
-            result = await session.execute(query, (conversation_id, limit))
-            return result.current_rows
+        result = await cassandra_client.execute(query, params)
+        if not result:
+            return None
 
-    @staticmethod
-    async def create_or_get_conversation(*args, **kwargs):
-        """
-        Get an existing conversation between two users or create a new one.
-        
-        Students should decide how to handle this operation efficiently.
-        """
-        # This is a stub - students will implement the actual logic
-        user1_id = kwargs.get("user1_id")
-        user2_id = kwargs.get("user2_id")
-
-        sorted_ids = sorted([str(user1_id), str(user2_id)])
-        conversation_id = uuid.uuid5(uuid.NAMESPACE_DNS, f"{sorted_ids[0]}-{sorted_ids[1]}")
-
-        check_query = """
-                    SELECT conversation_id FROM messages_by_conversation 
-                    WHERE conversation_id = %s LIMIT 1
-                """
-
-        async with cassandra_client() as session:
-            result = await session.execute(check_query, (conversation_id,))
-            rows = result.current_rows
-
-        if rows:
-            return {"new": False, "conversation_id": str(conversation_id)}
-        else:
-            return {"new": True, "conversation_id": str(conversation_id)}
+        message = result[0]
+        return {
+            "id": conversation_id,
+            "user1_id": message["sender_id"],
+            "user2_id": message["receiver_id"],
+            "last_message_at": message["created_at"],
+            "last_message_content": message["content"]
+        }

@@ -9,7 +9,6 @@ from app.schemas.message import MessageCreate, MessageResponse, PaginatedMessage
 class MessageController:
     """
     Controller for handling message operations
-    This is a stub that students will implement
     """
 
     async def send_message(self, message_data: MessageCreate) -> MessageResponse:
@@ -25,7 +24,6 @@ class MessageController:
         Raises:
             HTTPException: If message sending fails
         """
-        # This is a stub - students will implement the actual logic
         try:
             result = await MessageModel.create_message(
                 sender_id=message_data.sender_id,
@@ -64,11 +62,7 @@ class MessageController:
 
         Returns:
             Paginated list of messages
-
-        Raises:
-            HTTPException: If conversation not found or access denied
         """
-        # This is a stub - students will implement the actual logic
         try:
             messages = await MessageModel.get_conversation_messages(
                 conversation_id=conversation_id,
@@ -89,7 +83,7 @@ class MessageController:
             ]
 
             return PaginatedMessageResponse(
-                total=len(data),  # Replace with actual total from DB if needed
+                total=len(data),
                 page=page,
                 limit=limit,
                 data=data
@@ -119,11 +113,7 @@ class MessageController:
 
         Returns:
             Paginated list of messages
-
-        Raises:
-            HTTPException: If conversation not found or access denied
         """
-        # This is a stub - students will implement the actual logic
         try:
             messages = await MessageModel.get_messages_before_timestamp(
                 conversation_id=conversation_id,
